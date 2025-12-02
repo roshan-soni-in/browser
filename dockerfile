@@ -11,14 +11,18 @@ RUN apt-get update && apt-get install -y \
   libgbm1 \
   libasound2 \
   libx11-xcb1 \
-  && apt-get clean
+  --no-install-recommends && \
+  apt-get clean && \
+  rm -rf /var/lib/apt/lists/*
 
+# Koyeb health check uses port 8000
 EXPOSE 8000
 
-CMD ["chromium", \
-    "--headless", \
-    "--disable-gpu", \
+CMD ["chromium-browser", \
+    "--headless=new", \
     "--no-sandbox", \
+    "--disable-gpu", \
     "--disable-dev-shm-usage", \
     "--remote-debugging-address=0.0.0.0", \
-    "--remote-debugging-port=9222"]
+    "--remote-debugging-port=8000", \
+    "--hide-scrollbars"]

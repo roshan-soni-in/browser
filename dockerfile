@@ -2,7 +2,6 @@ FROM debian:stable-slim
 
 RUN apt-get update && apt-get install -y \
   chromium \
-  chromium-driver \
   ca-certificates \
   fonts-liberation \
   libnss3 \
@@ -15,10 +14,10 @@ RUN apt-get update && apt-get install -y \
   apt-get clean && \
   rm -rf /var/lib/apt/lists/*
 
-# Koyeb health check uses port 8000
+# Koyeb health check / external port
 EXPOSE 8000
 
-CMD ["chromium-browser", \
+CMD ["chromium", \
     "--headless=new", \
     "--no-sandbox", \
     "--disable-gpu", \

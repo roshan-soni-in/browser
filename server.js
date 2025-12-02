@@ -4,37 +4,306 @@ const { spawn, execSync } = require('child_process');
 const http = require('http');
 
 const app = express();
+
 const PORT = process.env.PORT || 8000;
 const CHROME_PORT = 9222;
 
 let chromeProcess = null;
-let isReady = false;
+let chromeReady = false;
 
-// Find Chrome executable
+/* ------------------------------------------------------
+   🔍 1. Find Chrome Executable (Playwright path)
+------------------------------------------------------ */
 function findChrome() {
   try {
-    const chromePath = execSync('find /ms-playwright -name chrome -type f | head -n 1')
+    const chromePath = execSync(
+      'find /ms-playwright -type f -name "chrome" | head -n 1'
+    )
       .toString()
       .trim();
-    console.log('✓ Found Chrome at:', chromePath);
+
+    if (!chromePath) throw new Error('Chrome binary not found');
+
+    console.log("✓ Found Chrome:", chromePath);
     return chromePath;
-  } catch (error) {
-    console.error('✗ Failed to find Chrome executable:', error);
+
+  } catch (err) {
+    console.error("✗ Could not locate Chrome:", err);
     process.exit(1);
   }
 }
 
-// Check if Chrome is responding
-function checkChromeHealth() {
+/* ------------------------------------------------------
+   ❤️ 2. Check if Chrome is accepting DevTools connections
+------------------------------------------------------ */
+async function checkChrome() {
   return new Promise((resolve) => {
     const req = http.get(`http://127.0.0.1:${CHROME_PORT}/json/version`, (res) => {
       resolve(res.statusCode === 200);
     });
-    req.on('error', () => resolve(false));
-    req.setTimeout(1000, () => {
+
+    req.on("error", () => resolve(false));
+    req.setTimeout(500, () => {
       req.destroy();
       resolve(false);
     });
+  });
+}
+
+/* ------------------------------------------------------
+   🚀 3. Start Chrome / Ultra-Optimized Flags (Low RAM)
+------------------------------------------------------ */
+async function startChrome() {
+  const chromePath = findChrome();
+
+  console.log("🚀 Launching optimized Chrome...");
+
+  chromeProcess = spawn(chromePath, [
+    "--headless=new",
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-background-networking",
+    "--disable-default-apps",
+    "--disable-extensions",
+    "--disable-hang-monitor",
+    "--disable-popup-blocking",
+    "--disable-sync",
+    "--disable-translate",
+    "--disable-crash-reporter",
+    "--disable-notifications",
+    "--disable-ipc-flooding-protection",
+    "--disable-renderer-backgrounding",
+    "--disable-background-timer-throttling",
+    "--metrics-recording-only",
+    "--mute-audio",
+
+    // 🧠 MASSIVE memory reductions:
+    "--single-process",      
+    "--no-zygote",
+
+    // Lower memory JS engine
+    "--js-flags=--max-old-space-size=128",
+
+    "--remote-debugging-address=0.0.0.0",
+    `--remote-debugging-port=${CHROME_PORT}`,
+
+    "--window-size=1280,720",
+  ]);
+
+  chromeProcess.stderr.on("data", (data) => {
+    const msg = data.toString();
+    if (!msg.includes("dbus") && !msg.includes("Gtk")) {
+      console.log("[Chrome]", msg.trim());
+    }
+  });
+
+  chromeProcess.on("exit", () => {
+    console.error("✗ Chrome exited unexpectedly!");
+    chromeReady = false;
+  });
+
+  // Wait for Chrome to boot
+  for (let i = 0; i < 40; i++) {
+    if (await checkChrome()) {
+      console.log("✓ Chrome is ready on port", CHROME_PORT);
+      chromeReady = true;
+      return;
+    }
+    process.stdout.write(".");
+    await new Promise((r) => setTimeout(r, 500));
+  }
+
+  console.error("\n✗ Chrome failed to start");
+  process.exit(1);
+}
+
+/* ------------------------------------------------------
+   ⚡ 4. Auto-Heal — Restart Chrome if it dies
+------------------------------------------------------ */
+setInterval(async () => {
+  if (!chromeReady) {
+    console.log("\n⚠ Chrome not ready — restarting...");
+    await startChrome();
+  }
+}, 5000);
+
+/* ------------------------------------------------------
+   🔁 5. Reverse Proxy → Chrome DevTools
+------------------------------------------------------ */
+async function startProxy() {
+  console.log("\n🌐 Starting Chrome DevTools proxy on port", PORT);
+
+  const proxy = createProxyMiddleware({
+    target: `http://127.0.0.1:${CHROME_PORT}`,
+    changeOrigin: false,
+    ws: true,
+    secure: false,
+    logLevel: "warn",
+  });
+
+  app.get("/health", (req, res) => {
+    res.json({
+      status: chromeReady ? "ready" : "starting",
+      chrome: chromeReady,
+      timestamp: Date.now(),
+    });
+  });
+
+  // All endpoints → Chrome DevTools
+  app.use("/", proxy);
+
+  const server = app.listen(PORT, "0.0.0.0", () => {
+    console.log("✓ Proxy online at : " + PORT);
+    console.log("✓ DevTools → /json/version");
+  });
+
+  server.on("upgrade", (req, socket, head) => {
+    proxy.upgrade(req, socket, head);
+  });
+}
+
+/* ------------------------------------------------------
+   🛑 6. Graceful Shutdown
+------------------------------------------------------ */
+function shutdown() {
+  console.log("\n🛑 Shutting down...");
+  if (chromeProcess) chromeProcess.kill("SIGTERM");
+  process.exit(0);
+}
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
+
+/* ------------------------------------------------------
+   🧩 7. BOOT
+------------------------------------------------------ */
+(async () => {
+  await startChrome();
+  await startProxy();
+})();
+  console.log("🚀 Launching optimized Chrome...");
+
+  chromeProcess = spawn(chromePath, [
+    "--headless=new",
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-background-networking",
+    "--disable-default-apps",
+    "--disable-extensions",
+    "--disable-hang-monitor",
+    "--disable-popup-blocking",
+    "--disable-sync",
+    "--disable-translate",
+    "--disable-crash-reporter",
+    "--disable-notifications",
+    "--disable-ipc-flooding-protection",
+    "--disable-renderer-backgrounding",
+    "--disable-background-timer-throttling",
+    "--metrics-recording-only",
+    "--mute-audio",
+
+    // 🧠 MASSIVE memory reductions:
+    "--single-process",      
+    "--no-zygote",
+
+    // Lower memory JS engine
+    "--js-flags=--max-old-space-size=128",
+
+    "--remote-debugging-address=0.0.0.0",
+    `--remote-debugging-port=${CHROME_PORT}`,
+
+    "--window-size=1280,720",
+  ]);
+
+  chromeProcess.stderr.on("data", (data) => {
+    const msg = data.toString();
+    if (!msg.includes("dbus") && !msg.includes("Gtk")) {
+      console.log("[Chrome]", msg.trim());
+    }
+  });
+
+  chromeProcess.on("exit", () => {
+    console.error("✗ Chrome exited unexpectedly!");
+    chromeReady = false;
+  });
+
+  // Wait for Chrome to boot
+  for (let i = 0; i < 40; i++) {
+    if (await checkChrome()) {
+      console.log("✓ Chrome is ready on port", CHROME_PORT);
+      chromeReady = true;
+      return;
+    }
+    process.stdout.write(".");
+    await new Promise((r) => setTimeout(r, 500));
+  }
+
+  console.error("\n✗ Chrome failed to start");
+  process.exit(1);
+}
+
+/* ------------------------------------------------------
+   ⚡ 4. Auto-Heal — Restart Chrome if it dies
+------------------------------------------------------ */
+setInterval(async () => {
+  if (!chromeReady) {
+    console.log("\n⚠ Chrome not ready — restarting...");
+    await startChrome();
+  }
+}, 5000);
+
+/* ------------------------------------------------------
+   🔁 5. Reverse Proxy → Chrome DevTools
+------------------------------------------------------ */
+async function startProxy() {
+  console.log("\n🌐 Starting Chrome DevTools proxy on port", PORT);
+
+  const proxy = createProxyMiddleware({
+    target: `http://127.0.0.1:${CHROME_PORT}`,
+    changeOrigin: false,
+    ws: true,
+    secure: false,
+    logLevel: "warn",
+  });
+
+  app.get("/health", (req, res) => {
+    res.json({
+      status: chromeReady ? "ready" : "starting",
+      chrome: chromeReady,
+      timestamp: Date.now(),
+    });
+  });
+
+  // All endpoints → Chrome DevTools
+  app.use("/", proxy);
+
+  const server = app.listen(PORT, "0.0.0.0", () => {
+    console.log("✓ Proxy online at : " + PORT);
+    console.log("✓ DevTools → /json/version");
+  });
+
+  server.on("upgrade", (req, socket, head) => {
+    proxy.upgrade(req, socket, head);
+  });
+}
+
+/* ------------------------------------------------------
+   🛑 6. Graceful Shutdown
+------------------------------------------------------ */
+function shutdown() {
+  console.log("\n🛑 Shutting down...");
+  if (chromeProcess) chromeProcess.kill("SIGTERM");
+  process.exit(0);
+}
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
+
+/* ------------------------------------------------------
+   🧩 7. BOOT
+------------------------------------------------------ */
+(async () => {
+  await startChrome();
+  await startProxy();
+})();    });
   });
 }
 

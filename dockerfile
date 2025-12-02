@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y \
   libx11-xcb1 \
   && apt-get clean
 
-EXPOSE 9222
+EXPOSE 8000
 
 CMD ["chromium", \
     "--headless", \
